@@ -1,0 +1,114 @@
+import gym
+import itertools
+import numpy as np
+import sys
+import random
+
+if "../" not in sys.path:
+  sys.path.append("../")
+
+from collections import defaultdict
+from lib import plotting
+
+def make_epsilon_greedy_policy(Q, epsilon, nA):
+    """
+    Creates an epsilon-greedy policy based on a given Q-function and epsilon.
+
+    Args:
+        Q: A dictionary that maps from state -> action-values.
+            Each value is a numpy array of length nA (see below)
+        epsilon: The probability to select a random action . float between 0 and 1.
+        nA: Number of actions in the environment.
+
+    Returns:
+        A function that takes the observation as an argument and returns
+        the probabilities for each action in the form of a numpy array of length nA.
+
+    """
+    def policy_fn(observation):
+        A = np.ones(nA, dtype=float) * epsilon / nA
+        best_action = np.argmax(Q[observation])
+        A[best_action] += (1.0 - epsilon)
+        return A
+    return policy_fn
+
+def sample(totals):
+    n = random.uniform(0, totals[-1])
+    for i, total in enumerate(totals):
+        if n <= total:
+            return i
+
+def sarsa(env, num_episodes, discount_factor=1.0, alpha=0.5, epsilon=0.1):
+    """
+    SARSA algorithm: On-policy TD control. Finds the optimal epsilon-greedy policy.
+    
+    Args:
+        env: OpenAI environment.
+        num_episodes: Number of episodes to run for.
+        discount_factor: Gamma discount factor.
+        alpha: TD learning rate.
+        epsilon: Chance the sample a random action. Float betwen 0 and 1.
+    
+    Returns:
+        A tuple (Q, stats).
+        Q is the optimal action-value function, a dictionary mapping state -> action values.
+        stats is an EpisodeStats object with two numpy arrays for episode_lengths and episode_rewards.
+    """
+    
+    # The final action-value function.
+    # A nested dictionary that maps state -> (action -> action-value).
+    Q = defaultdict(lambda: np.zeros(env.action_space.n))
+    
+    # Keeps track of useful statistics
+    stats = plotting.EpisodeStats(
+        episode_lengths=np.zeros(num_episodes),
+        episode_rewards=np.zeros(num_episodes))
+
+    # The policy we're following
+    policy = make_epsilon_greedy_policy(Q, epsilon, env.action_space.n)
+    
+
+    for i_episode in range(num_episodes):
+        # Print out which episode we're on, useful for debugging.
+        if (i_episode + 1) % 100 == 0:
+            print("\rEpisode {}/{}.".format(i_episode + 1, num_episodes), end="")
+            sys.stdout.flush()
+        
+        # 1. Generate one step of an episode e
+        # 2. Update Q(s,a) according the the reward and next_state of the step
+        # 3. Update policy (e-greedy)
+        # 4. Coninue with next step
+        
+        
+        state = env.reset()
+        while True:
+            probabilities = policy(state)
+            totals = list(itertools.accumulate(probabilities))
+            action = sample(totals)
+                         
+            # 1. Generate one step of an episode e     
+            next_state, reward, done, _ = env.step(action)
+            
+            # Update stats for plotting
+            stats.episode_rewards[i_episode] += reward
+            stats.episode_lengths[i_episode] += 1
+               
+            probabilities = policy(next_state)
+            totals = list(itertools.accumulate(probabilities))
+            next_action = sample(totals)
+            
+            # 2. Update Q(s,a) according the the reward and next_state of the step
+            Q[state][action] += alpha * (reward + discount_factor*Q[next_state][next_action] - Q[state][action])
+            
+            # 3. Update policy (e-greedy)
+            # Happens automatically as everytime we call policy() the updated Q value is used for the calculation
+            
+            state = next_state
+            
+            if done:
+                break
+             
+            # Episode is over
+          
+
+    return Q, stats
